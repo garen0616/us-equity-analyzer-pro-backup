@@ -6,7 +6,6 @@
 <title>美股財報一致性分析器 Pro</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
 :root{--bg:#0b0e14;--card:#121826;--muted:#94a3b8;--text:#e2e8f0;--accent:#60a5fa;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444;}
 *{box-sizing:border-box}
@@ -18,7 +17,8 @@ h1{font-size:28px;margin:0 0 12px}
 label{display:block;margin:8px 0 6px;color:var(--muted)}
 input,button{width:100%;padding:12px 14px;border-radius:12px;border:1px solid #334155;background:#0f172a;color:var(--text);font-size:16px}
 button{cursor:pointer;background:linear-gradient(135deg,#2563eb,#06b6d4);border:none}
-.row{display:grid;grid-template-columns:1fr 1fr 120px;gap:12px}
+button:disabled{opacity:.6;cursor:not-allowed}
+.row{display:grid;grid-template-columns:1fr 1fr 150px;gap:12px}
 .muted{color:var(--muted)}
 .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:12px}
 .kpi{background:#0f172a;border:1px solid #1f2937;border-radius:12px;padding:12px}
@@ -26,12 +26,22 @@ button{cursor:pointer;background:linear-gradient(135deg,#2563eb,#06b6d4);border:
 .kpi p{margin:6px 0 0;font-size:20px;font-weight:700}
 pre{white-space:pre-wrap;word-break:break-word;background:#0b1220;border:1px solid #1f2937;border-radius:12px;padding:12px;color:#cbd5e1}
 canvas{background:#0b1220;border:1px solid #1f2937;border-radius:12px;padding:10px}
+.status-pill{margin-top:14px;display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:999px;background:#0f172a;border:1px solid #1f2937;font-size:14px;color:var(--muted)}
+.status-pill::before{content:'';width:10px;height:10px;border-radius:50%;background:var(--muted)}
+.status-pill[data-state="running"]{color:#bfdbfe;border-color:#2563eb}
+.status-pill[data-state="running"]::before{background:#60a5fa;animation:pulse 1s ease-in-out infinite}
+.status-pill[data-state="done"]{color:var(--ok);border-color:var(--ok)}
+.status-pill[data-state="done"]::before{background:var(--ok);animation:none}
+.status-pill[data-state="error"]{color:var(--bad);border-color:var(--bad)}
+.status-pill[data-state="error"]::before{background:var(--bad)}
+.status-pill[data-state="idle"]::before{background:var(--muted)}
 .timeline{display:grid;gap:10px}
 .ti{border:1px solid #1f2937;border-radius:12px;padding:12px;background:#0f172a}
 .ti h4{margin:0 0 8px}
 .ti .meta{font-size:13px;color:var(--muted)}
 .summary{line-height:1.7}
 @media(max-width:1000px){.grid,.row,.kpis{grid-template-columns:1fr}}
+@keyframes pulse{0%{transform:scale(.7);opacity:.7}50%{transform:scale(1.3);opacity:1}100%{transform:scale(.7);opacity:.7}}
 </style>
 </head>
 <body>
@@ -43,6 +53,9 @@ canvas{background:#0b1220;border:1px solid #1f2937;border-radius:12px;padding:10
       <div><label>Ticker</label><input id="t" value="NVDA" placeholder="NVDA"/></div>
       <div><label>Date</label><input id="d" value="2025-11-08" placeholder="YYYY-MM-DD"/></div>
       <div style="align-self:end"><button id="go">分析</button></div>
+      <div style="grid-column:1 / -1">
+        <div id="status" class="status-pill" data-state="idle">待命中，請輸入條件後開始分析。</div>
+      </div>
     </div>
     <div class="kpis">
       <div class="kpi"><h3>現價</h3><p id="px">-</p></div>
@@ -52,19 +65,8 @@ canvas{background:#0b1220;border:1px solid #1f2937;border-radius:12px;padding:10
     </div>
   </div>
 
-  <div class="grid" style="margin-top:16px">
-    <div class="card">
-      <h3 style="margin:0 0 12px">五大指標雷達圖（最近一期）</h3>
-      <canvas id="radar" height="380"></canvas>
-    </div>
-    <div class="card">
-      <h3 style="margin:0 0 12px">目標價區間</h3>
-      <canvas id="targets" height="380"></canvas>
-    </div>
-  </div>
-
   <div class="card" style="margin-top:16px">
-    <h3 style="margin:0 0 8px">財報時間線與重點摘要（給一般人看）</h3>
+    <h3 style="margin:0 0 8px">財報時間線與重點摘要</h3>
     <div id="timeline" class="timeline"></div>
   </div>
 
@@ -81,7 +83,6 @@ canvas{background:#0b1220;border:1px solid #1f2937;border-radius:12px;padding:10
 </div>
 
 <script>
-let radarChart, targetChart;
 function clamp(x){ return Math.max(0, Math.min(1, x)); }
 function n(x, d=2){ const v=Number(x); return Number.isFinite(v)? v.toFixed(d):'-'; }
 function toNum(x){ const v=Number(x); return Number.isFinite(v)? v:null; }
@@ -100,46 +101,6 @@ function ensureTargets(pt, current){
     if(lo!=null && cur<lo) lo = cur*0.95;
   }
   return {hi, lo, mean, cur};
-}
-
-function computeRadarFromFiling(filing){
-  const fi = filing?.five_indicators || filing?.fiveIndicators || {};
-  const alignment = clamp(toNum(fi.alignment_score ?? fi.alignment) ?? 0.6);
-  const riskScore = clamp(1 - Math.min((fi.risk_factors||[]).length/5, 1));
-  const conflictScore = clamp(1 - Math.min((fi.key_conflicts||[]).length/5, 1));
-  const catalystScore = clamp(Math.min(((fi.catalyst_timeline||[]).length)/4, 1) || 0.5);
-  const valuationScore = (fi.valuation_rationale && fi.valuation_rationale.length>30)? 0.8 : 0.6;
-  return { alignment, valuationScore, riskScore, catalystScore, conflictScore };
-}
-
-function drawRadar(filing){
-  const k = computeRadarFromFiling(filing);
-  const labels = ['一致性','估值論點','風險控制','催化可見度','分歧壓力(反向)'];
-  const data = [k.alignment, k.valuationScore, k.riskScore, k.catalystScore, k.conflictScore];
-  const ctx = document.getElementById('radar').getContext('2d');
-  if(radarChart) radarChart.destroy();
-  radarChart = new Chart(ctx, {
-    type: 'radar',
-    data: { labels, datasets: [{ label:'Score (0~1)', data }] },
-    options: {
-      scales: { r:{ suggestedMin:0, suggestedMax:1, grid:{color:'#233'}, angleLines:{color:'#233'}, pointLabels:{color:'#94a3b8'} } },
-      plugins:{ legend:{labels:{color:'#94a3b8'}} }
-    }
-  });
-}
-
-function drawTargets(current, pt){
-  const t = ensureTargets(pt, current);
-  const ctx = document.getElementById('targets').getContext('2d');
-  if(targetChart) targetChart.destroy();
-  targetChart = new Chart(ctx, {
-    type:'bar',
-    data:{ labels:['Low','Mean','High','Current'], datasets:[{ label:'Price', data:[t.lo, t.mean, t.hi, t.cur] }] },
-    options:{
-      plugins:{ legend:{labels:{color:'#94a3b8'}} },
-      scales:{ x:{ ticks:{color:'#94a3b8'} }, y:{ ticks:{color:'#94a3b8'}, beginAtZero:false } }
-    }
-  });
 }
 
 function setKPIs(quote, pt, decision){
@@ -179,23 +140,50 @@ function renderConclusion(analysis){
   document.getElementById('decision').innerHTML = dec + (act.rationale? `<div class="muted" style="margin-top:6px">${act.rationale}</div>`:'');
 }
 
+const statusEl = document.getElementById('status');
+function setStatus(text, state='idle'){
+  statusEl.textContent = text;
+  statusEl.setAttribute('data-state', state);
+}
+
 async function analyze(){
-  const ticker = document.getElementById('t').value.trim();
+  const ticker = document.getElementById('t').value.trim().toUpperCase();
   const date   = document.getElementById('d').value.trim();
+  if(!ticker || !date){
+    setStatus('請先輸入 Ticker 與 Date。', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('go');
+  const prevLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '分析中...';
+  setStatus(`正在分析 ${ticker}，這可能需要 1-2 分鐘，請勿關閉頁面…`, 'running');
   document.getElementById('out').textContent='分析中...';
-  const r = await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticker,date})});
-  const j = await r.json();
-  document.getElementById('out').textContent = JSON.stringify(j,null,2);
 
-  if(j.error) return;
+  try{
+    const r = await fetch('/api/analyze',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ticker,date})
+    });
+    const j = await r.json();
+    document.getElementById('out').textContent = JSON.stringify(j,null,2);
+    if(j.error){
+      setStatus(`分析失敗：${j.error}`, 'error');
+      return;
+    }
 
-  setKPIs(j?.fetched?.finnhub_summary?.quote, j?.fetched?.finnhub_summary?.price_target, j?.analysis?.action?.rating);
-  const latestFiling = j?.analysis?.per_filing?.[0] || null;
-  drawRadar(latestFiling);
-  drawTargets(j?.fetched?.finnhub_summary?.quote?.c, j?.fetched?.finnhub_summary?.price_target);
-
-  renderTimeline(j?.analysis?.per_filing);
-  renderConclusion(j?.analysis);
+    setKPIs(j?.fetched?.finnhub_summary?.quote, j?.fetched?.finnhub_summary?.price_target, j?.analysis?.action?.rating);
+    renderTimeline(j?.analysis?.per_filing);
+    renderConclusion(j?.analysis);
+    setStatus('分析完成 ✅', 'done');
+  }catch(err){
+    setStatus(`連線失敗：${err.message}`, 'error');
+  }finally{
+    btn.disabled = false;
+    btn.textContent = prevLabel;
+  }
 }
 
 document.getElementById('go').addEventListener('click', analyze);

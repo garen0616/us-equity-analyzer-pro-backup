@@ -8,31 +8,36 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
-  :root{--bg:#0b0e14;--card:#121826;--muted:#94a3b8;--text:#e2e8f0;--accent:#60a5fa;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444;}
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,'Noto Sans',sans-serif;color:var(--text)}
-  .wrap{max-width:1100px;margin:40px auto;padding:0 16px}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-  .card{background:var(--card);border:1px solid #1f2937;border-radius:16px;padding:18px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
-  h1{font-size:28px;margin:0 0 12px}
-  label{display:block;margin:8px 0 6px;color:var(--muted)}
-  input,button{width:100%;padding:12px 14px;border-radius:12px;border:1px solid #334155;background:#0f172a;color:var(--text);font-size:16px}
-  button{cursor:pointer;background:linear-gradient(135deg,#2563eb,#06b6d4);border:none}
-  .row{display:grid;grid-template-columns:1fr 1fr 120px;gap:12px}
-  .muted{color:var(--muted)}
-  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:12px}
-  .kpi{background:#0f172a;border:1px solid #1f2937;border-radius:12px;padding:12px}
-  .kpi h3{margin:0;font-size:13px;color:var(--muted)}
-  .kpi p{margin:6px 0 0;font-size:20px;font-weight:700}
-  pre{white-space:pre-wrap;word-break:break-word;background:#0b1220;border:1px solid #1f2937;border-radius:12px;padding:12px;color:#cbd5e1}
-  canvas{background:#0b1220;border:1px solid #1f2937;border-radius:12px;padding:10px}
-  @media(max-width:900px){.grid,.row{grid-template-columns:1fr}}
+:root{--bg:#0b0e14;--card:#121826;--muted:#94a3b8;--text:#e2e8f0;--accent:#60a5fa;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,'Noto Sans',sans-serif;color:var(--text)}
+.wrap{max-width:1200px;margin:40px auto;padding:0 16px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.card{background:var(--card);border:1px solid #1f2937;border-radius:16px;padding:18px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+h1{font-size:28px;margin:0 0 12px}
+label{display:block;margin:8px 0 6px;color:var(--muted)}
+input,button{width:100%;padding:12px 14px;border-radius:12px;border:1px solid #334155;background:#0f172a;color:var(--text);font-size:16px}
+button{cursor:pointer;background:linear-gradient(135deg,#2563eb,#06b6d4);border:none}
+.row{display:grid;grid-template-columns:1fr 1fr 120px;gap:12px}
+.muted{color:var(--muted)}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:12px}
+.kpi{background:#0f172a;border:1px solid #1f2937;border-radius:12px;padding:12px}
+.kpi h3{margin:0;font-size:13px;color:var(--muted)}
+.kpi p{margin:6px 0 0;font-size:20px;font-weight:700}
+pre{white-space:pre-wrap;word-break:break-word;background:#0b1220;border:1px solid #1f2937;border-radius:12px;padding:12px;color:#cbd5e1}
+canvas{background:#0b1220;border:1px solid #1f2937;border-radius:12px;padding:10px}
+.timeline{display:grid;gap:10px}
+.ti{border:1px solid #1f2937;border-radius:12px;padding:12px;background:#0f172a}
+.ti h4{margin:0 0 8px}
+.ti .meta{font-size:13px;color:var(--muted)}
+.summary{line-height:1.7}
+@media(max-width:1000px){.grid,.row,.kpis{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>美股財報一致性分析器 Pro</h1>
-  <p class="muted">輸入股票代號與日期（YYYY-MM-DD）。系統將回溯四季 10-Q/10-K，結合分析師資料，產出五大指標與投資建議。</p>
+  <p class="muted">輸入股票代號與日期（YYYY-MM-DD）。系統回溯四季 10-Q/10-K，合併分析師資料，輸出五大指標與投資建議。</p>
   <div class="card">
     <div class="row">
       <div><label>Ticker</label><input id="t" value="NVDA" placeholder="NVDA"/></div>
@@ -59,28 +64,58 @@
   </div>
 
   <div class="card" style="margin-top:16px">
-    <h3 style="margin:0 0 8px">詳細結果（除錯用）</h3>
+    <h3 style="margin:0 0 8px">財報時間線與重點摘要（給一般人看）</h3>
+    <div id="timeline" class="timeline"></div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h3 style="margin:0 0 8px">ChatGPT 總結與結論</h3>
+    <div id="consensus" class="summary muted">尚無資料</div>
+    <div id="decision" class="summary" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h3 style="margin:0 0 8px">詳細 JSON（除錯用）</h3>
     <pre id="out">尚未查詢</pre>
   </div>
 </div>
 
 <script>
 let radarChart, targetChart;
+function clamp(x){ return Math.max(0, Math.min(1, x)); }
+function n(x, d=2){ const v=Number(x); return Number.isFinite(v)? v.toFixed(d):'-'; }
+function toNum(x){ const v=Number(x); return Number.isFinite(v)? v:null; }
 
-function ensureNumber(x, def=0){ const n=Number(x); return isNaN(n)?def:n; }
+function ensureTargets(pt, current){
+  let hi = toNum(pt?.targetHigh), lo = toNum(pt?.targetLow), mean = toNum(pt?.targetMean ?? pt?.targetMedian);
+  const cur = toNum(current);
+  if(mean!=null){
+    if(hi==null) hi = mean * 1.15;
+    if(lo==null) lo = mean * 0.85;
+  }
+  if(hi!=null && lo==null) lo = hi/1.2;
+  if(lo!=null && hi==null) hi = lo*1.2;
+  if(cur!=null){
+    if(hi!=null && cur>hi) hi = cur*1.05;
+    if(lo!=null && cur<lo) lo = cur*0.95;
+  }
+  return {hi, lo, mean, cur};
+}
+
+function computeRadarFromFiling(filing){
+  const fi = filing?.five_indicators || filing?.fiveIndicators || {};
+  const alignment = clamp(toNum(fi.alignment_score ?? fi.alignment) ?? 0.6);
+  const riskScore = clamp(1 - Math.min((fi.risk_factors||[]).length/5, 1));
+  const conflictScore = clamp(1 - Math.min((fi.key_conflicts||[]).length/5, 1));
+  const catalystScore = clamp(Math.min(((fi.catalyst_timeline||[]).length)/4, 1) || 0.5);
+  const valuationScore = (fi.valuation_rationale && fi.valuation_rationale.length>30)? 0.8 : 0.6;
+  return { alignment, valuationScore, riskScore, catalystScore, conflictScore };
+}
 
 function drawRadar(filing){
-  const fi = filing?.five_indicators || {};
+  const k = computeRadarFromFiling(filing);
   const labels = ['一致性','估值論點','風險控制','催化可見度','分歧壓力(反向)'];
-  // 嘗試構造 0~1 分數：alignment_score 直接取；風險越少分數越高；分歧越少分數越高；催化>0則0.6~0.9
-  const alignment = ensureNumber(fi.alignment_score, 0.5);
-  const riskScore = 1 - Math.min((fi.risk_factors||[]).length/5, 1);
-  const conflictScore = 1 - Math.min((fi.key_conflicts||[]).length/5, 1);
-  const catalystScore = Math.min(((fi.catalyst_timeline||[]).length)/4, 1) || 0.5;
-  const valuationScore = (fi.valuation_rationale && fi.valuation_rationale.length>30) ? 0.8 : 0.5;
-
-  const data = [alignment, valuationScore, riskScore, catalystScore, conflictScore];
-
+  const data = [k.alignment, k.valuationScore, k.riskScore, k.catalystScore, k.conflictScore];
   const ctx = document.getElementById('radar').getContext('2d');
   if(radarChart) radarChart.destroy();
   radarChart = new Chart(ctx, {
@@ -93,27 +128,60 @@ function drawRadar(filing){
   });
 }
 
-function drawTargets(current, hi, mean, lo){
+function drawTargets(current, pt){
+  const t = ensureTargets(pt, current);
   const ctx = document.getElementById('targets').getContext('2d');
   if(targetChart) targetChart.destroy();
-  const labels = ['Low','Mean','High','Current'];
-  const vals = [lo, mean, hi, current].map(v=>ensureNumber(v,null));
   targetChart = new Chart(ctx, {
     type:'bar',
-    data:{ labels, datasets:[{ label:'Price', data: vals }] },
+    data:{ labels:['Low','Mean','High','Current'], datasets:[{ label:'Price', data:[t.lo, t.mean, t.hi, t.cur] }] },
     options:{
       plugins:{ legend:{labels:{color:'#94a3b8'}} },
-      scales:{
-        x:{ ticks:{color:'#94a3b8'} },
-        y:{ ticks:{color:'#94a3b8'}, beginAtZero:false }
-      }
+      scales:{ x:{ ticks:{color:'#94a3b8'} }, y:{ ticks:{color:'#94a3b8'}, beginAtZero:false } }
     }
   });
 }
 
+function setKPIs(quote, pt, decision){
+  const last = toNum(quote?.c);
+  const targets = ensureTargets(pt, last);
+  document.getElementById('px').textContent = last? ('$'+last.toFixed(2)) : '-';
+  document.getElementById('ptMean').textContent = targets.mean? ('$'+targets.mean.toFixed(2)) : '-';
+  document.getElementById('ptRange').textContent = (targets.lo||targets.hi)
+      ? [targets.lo?('$'+targets.lo.toFixed(0)):'-', targets.hi?('$'+targets.hi.toFixed(0)):'-'].join(' ~ ')
+      : '-';
+  document.getElementById('rating').textContent = decision || '-';
+}
+
+function renderTimeline(perFiling){
+  const box = document.getElementById('timeline');
+  box.innerHTML='';
+  (perFiling||[]).forEach((f,i)=>{
+    const exp = f.explanation || '（模型目前未提供詳細解釋）';
+    const html = `
+      <div class="ti">
+        <h4>${f.form || 'Filing'} · <span class="meta">${f.filingDate || ''}</span></h4>
+        <div class="meta">報告期間：${f.reportDate || '-'}</div>
+        <div class="summary" style="margin-top:6px">${exp}</div>
+      </div>
+    `;
+    box.insertAdjacentHTML('beforeend', html);
+  });
+}
+
+function renderConclusion(analysis){
+  const cons = analysis?.consensus_view?.summary || '（尚無共識摘要）';
+  const act = analysis?.action || {};
+  const dec = (act.rating? `<b>${act.rating}</b>`:'-') +
+              (act.target_price? ` · 目標價 $${n(act.target_price,0)}`:'') +
+              (act.stop_loss? ` · 止損 $${n(act.stop_loss,0)}`:'');
+  document.getElementById('consensus').innerHTML = cons;
+  document.getElementById('decision').innerHTML = dec + (act.rationale? `<div class="muted" style="margin-top:6px">${act.rationale}</div>`:'');
+}
+
 async function analyze(){
   const ticker = document.getElementById('t').value.trim();
-  const date = document.getElementById('d').value.trim();
+  const date   = document.getElementById('d').value.trim();
   document.getElementById('out').textContent='分析中...';
   const r = await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticker,date})});
   const j = await r.json();
@@ -121,27 +189,13 @@ async function analyze(){
 
   if(j.error) return;
 
-  const quote = j?.fetched?.finnhub_summary?.quote;
-  const last = quote?.c || null;
-  const pt = j?.fetched?.finnhub_summary?.price_target || {};
-  const hi = pt.targetHigh ?? null;
-  const lo = pt.targetLow ?? null;
-  const mean = pt.targetMean ?? pt.targetMedian ?? null;
-
-  document.getElementById('px').textContent = last? ('$'+last.toFixed(2)) : '-';
-  document.getElementById('ptMean').textContent = mean? ('$'+Number(mean).toFixed(2)) : '-';
-  document.getElementById('ptRange').textContent = (lo||hi)? [lo?('$'+Number(lo).toFixed(0)):'-', hi?('$'+Number(hi).toFixed(0)):'-'].join(' ~ ') : '-';
-
+  setKPIs(j?.fetched?.finnhub_summary?.quote, j?.fetched?.finnhub_summary?.price_target, j?.analysis?.action?.rating);
   const latestFiling = j?.analysis?.per_filing?.[0] || null;
   drawRadar(latestFiling);
+  drawTargets(j?.fetched?.finnhub_summary?.quote?.c, j?.fetched?.finnhub_summary?.price_target);
 
-  drawTargets(last, hi, mean, last);
-
-  const ratingRaw = j?.analysis?.action?.rating || '';
-  const ratingMap = { BUY:'買進', HOLD:'觀望', SELL:'賣出' };
-  const ratingKey = typeof ratingRaw === 'string' ? ratingRaw.toUpperCase() : '';
-  const ratingDisplay = ratingMap[ratingKey] || ratingRaw || '-';
-  document.getElementById('rating').textContent = ratingDisplay;
+  renderTimeline(j?.analysis?.per_filing);
+  renderConclusion(j?.analysis);
 }
 
 document.getElementById('go').addEventListener('click', analyze);

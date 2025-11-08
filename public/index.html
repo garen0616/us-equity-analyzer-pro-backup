@@ -59,8 +59,8 @@ canvas{background:#0b1220;border:1px solid #1f2937;border-radius:12px;padding:10
     </div>
     <div class="kpis">
       <div class="kpi"><h3>現價</h3><p id="px">-</p></div>
-      <div class="kpi"><h3>均目標價</h3><p id="ptMean">-</p></div>
-      <div class="kpi"><h3>目標區間</h3><p id="ptRange">-</p></div>
+      <div class="kpi"><h3>分析師平均/共識目標價</h3><p id="ptMean">-</p></div>
+      <div class="kpi"><h3>ChatGPT 總結目標價</h3><p id="ptRange">-</p></div>
       <div class="kpi"><h3>建議</h3><p id="rating">-</p></div>
     </div>
   </div>
@@ -103,15 +103,18 @@ function ensureTargets(pt, current){
   return {hi, lo, mean, cur};
 }
 
-function setKPIs(quote, pt, decision){
+function setKPIs(quote, pt, action){
   const last = toNum(quote?.c);
   const targets = ensureTargets(pt, last);
   document.getElementById('px').textContent = last? ('$'+last.toFixed(2)) : '-';
   document.getElementById('ptMean').textContent = targets.mean? ('$'+targets.mean.toFixed(2)) : '-';
-  document.getElementById('ptRange').textContent = (targets.lo||targets.hi)
-      ? [targets.lo?('$'+targets.lo.toFixed(0)):'-', targets.hi?('$'+targets.hi.toFixed(0)):'-'].join(' ~ ')
-      : '-';
-  document.getElementById('rating').textContent = decision || '-';
+  const llmTarget = toNum(action?.target_price);
+  document.getElementById('ptRange').textContent = llmTarget? ('$'+llmTarget.toFixed(0)) : '-';
+  const ratingRaw = typeof action?.rating==='string' ? action.rating : '';
+  const ratingMap = { BUY:'買進', HOLD:'觀望', SELL:'賣出' };
+  const ratingKey = ratingRaw.toUpperCase();
+  const ratingDisplay = ratingMap[ratingKey] || ratingRaw || '-';
+  document.getElementById('rating').textContent = ratingDisplay;
 }
 
 function renderTimeline(perFiling){
@@ -174,7 +177,7 @@ async function analyze(){
       return;
     }
 
-    setKPIs(j?.fetched?.finnhub_summary?.quote, j?.fetched?.finnhub_summary?.price_target, j?.analysis?.action?.rating);
+    setKPIs(j?.fetched?.finnhub_summary?.quote, j?.fetched?.finnhub_summary?.price_target, j?.analysis?.action);
     const filingsMeta = j?.fetched?.filings || [];
     const timelineData = (j?.analysis?.per_filing || []).map((f,i)=>{
       const meta = filingsMeta[i] || {};

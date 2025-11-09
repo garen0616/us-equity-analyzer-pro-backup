@@ -16,6 +16,8 @@ body{margin:0;background:var(--bg);font-family:'Inter',system-ui,-apple-system,S
 h1{font-size:28px;margin:0 0 12px}
 label{display:block;margin:8px 0 6px;color:var(--muted)}
 input,button,select{width:100%;padding:12px 14px;border-radius:12px;border:1px solid #334155;background:#0f172a;color:var(--text);font-size:16px}
+input[type="date"]{-webkit-appearance:none;color:var(--text);}
+input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(1);}
 option{background:#0f172a;color:var(--text);}
 button{cursor:pointer;background:linear-gradient(135deg,#2563eb,#06b6d4);border:none}
 button:disabled{opacity:.6;cursor:not-allowed}

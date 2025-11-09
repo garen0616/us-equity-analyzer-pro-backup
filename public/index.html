@@ -15,10 +15,11 @@ body{margin:0;background:var(--bg);font-family:'Inter',system-ui,-apple-system,S
 .card{background:var(--card);border:1px solid #1f2937;border-radius:16px;padding:18px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
 h1{font-size:28px;margin:0 0 12px}
 label{display:block;margin:8px 0 6px;color:var(--muted)}
-input,button{width:100%;padding:12px 14px;border-radius:12px;border:1px solid #334155;background:#0f172a;color:var(--text);font-size:16px}
+input,button,select{width:100%;padding:12px 14px;border-radius:12px;border:1px solid #334155;background:#0f172a;color:var(--text);font-size:16px}
+option{background:#0f172a;color:var(--text);}
 button{cursor:pointer;background:linear-gradient(135deg,#2563eb,#06b6d4);border:none}
 button:disabled{opacity:.6;cursor:not-allowed}
-.row{display:grid;grid-template-columns:1fr 1fr 150px;gap:12px}
+.row{display:grid;grid-template-columns:repeat(3,1fr) 150px;gap:12px}
 .muted{color:var(--muted)}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-top:12px}
 .kpi{background:#0f172a;border:1px solid #1f2937;border-radius:12px;padding:12px}
@@ -58,6 +59,13 @@ canvas{background:#0b1220;border:1px solid #1f2937;border-radius:12px;padding:10
     <div class="row">
       <div><label>Ticker</label><input id="t" value="NVDA" placeholder="NVDA"/></div>
       <div><label>Date</label><input id="d" type="date" value="2025-11-08"/></div>
+      <div><label>模型</label>
+        <select id="model">
+          <option value="gpt-5" selected>gpt-5</option>
+          <option value="gpt-4.1">gpt-4.1</option>
+          <option value="gpt-4o-mini">gpt-4o-mini</option>
+        </select>
+      </div>
       <div style="align-self:end"><button id="go">分析</button></div>
       <div style="grid-column:1 / -1">
         <div class="status-row">
@@ -262,6 +270,8 @@ function renderProfile(profile){
 const statusEl = document.getElementById('status');
 const goBtn = document.getElementById('go');
 const stopBtn = document.getElementById('stop');
+const modelSelect = document.getElementById('model');
+const defaultModel = modelSelect?.value || 'gpt-5';
 const analyzeLabel = goBtn?.textContent || '分析';
 let inFlightController = null;
 let userAborted = false;
@@ -289,6 +299,9 @@ function setAnalyzeRunning(running){
     }
     inFlightController = null;
   }
+  if(modelSelect){
+    modelSelect.disabled = running;
+  }
 }
 
 async function analyze(){
@@ -298,6 +311,7 @@ async function analyze(){
   }
   const ticker = document.getElementById('t').value.trim().toUpperCase();
   const date   = document.getElementById('d').value.trim();
+  const model  = (modelSelect?.value || defaultModel).trim() || defaultModel;
   if(!ticker || !date){
     setStatus('請先輸入 Ticker 與 Date。', 'error');
     return;
@@ -305,7 +319,7 @@ async function analyze(){
 
   userAborted = false;
   setAnalyzeRunning(true);
-  setStatus(`正在分析 ${ticker}，這可能需要 1-2 分鐘，請勿關閉頁面…`, 'running');
+  setStatus(`正在分析 ${ticker}（模型 ${model}），這可能需要 1-2 分鐘，請勿關閉頁面…`, 'running');
   document.getElementById('out').textContent='分析中...';
 
   const controller = new AbortController();
@@ -315,7 +329,7 @@ async function analyze(){
     const r = await fetch('/api/analyze',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ticker,date}),
+      body:JSON.stringify({ticker,date,model}),
       signal: controller.signal
     });
     const j = await r.json();

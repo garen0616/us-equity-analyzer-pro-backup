@@ -32,6 +32,19 @@ const BATCH_CONCURRENCY = Math.max(1, Number(process.env.BATCH_CONCURRENCY || 3)
 const upload = multer({ storage: multer.memoryStorage(), limits:{ fileSize: 10 * 1024 * 1024 } });
 const REALTIME_TTL_MS = 6 * 60 * 60 * 1000;
 const HISTORICAL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const ALLOWED_MODEL_LIST = (process.env.OPENROUTER_ALLOWED_MODELS || 'gpt-5,gpt-4.1,gpt-4o-mini')
+  .split(',')
+  .map(s=>s.trim())
+  .filter(Boolean);
+if(!ALLOWED_MODEL_LIST.includes(MODEL)) ALLOWED_MODEL_LIST.push(MODEL);
+const ALLOWED_MODEL_SET = new Set(ALLOWED_MODEL_LIST);
+
+function resolveModelName(requested){
+  const trimmed = (requested || '').trim();
+  if(!trimmed) return MODEL;
+  if(ALLOWED_MODEL_SET.size === 0) return trimmed;
+  return ALLOWED_MODEL_SET.has(trimmed) ? trimmed : MODEL;
+}
 
 function errRes(res, err){ console.error('❌', err); return res.status(500).json({error:String(err.message||err)}); }
 
@@ -51,15 +64,16 @@ async function mapWithConcurrency(items, limit, mapper){
   return results;
 }
 
-async function performAnalysis(ticker, date){
+async function performAnalysis(ticker, date, opts={}){
   const parsedDate = dayjs(date);
   if(!parsedDate.isValid()) throw new Error('invalid date format');
   const baselineDate = parsedDate.format('YYYY-MM-DD');
   const upperTicker = ticker.toUpperCase();
   const isHistorical = parsedDate.isBefore(dayjs(), 'day');
   const analysisTtl = isHistorical ? HISTORICAL_TTL_MS : REALTIME_TTL_MS;
+  const llmModel = resolveModelName(opts.model);
 
-  const cachedResult = getCachedAnalysis({ ticker: upperTicker, baselineDate, ttlMs: analysisTtl });
+  const cachedResult = getCachedAnalysis({ ticker: upperTicker, baselineDate, ttlMs: analysisTtl, model: llmModel });
   if(cachedResult){
     return cachedResult;
   }
@@ -128,7 +142,7 @@ async function performAnalysis(ticker, date){
     finnhub: { recommendation:finnhub.recommendation, earnings:finnhub.earnings, quote:finnhub.quote, price_target: ptAgg }
   };
   const llmTtlMs = analysisTtl;
-  const llm = await analyzeWithLLM(OPEN_KEY, MODEL, payload, { cacheTtlMs: llmTtlMs, promptVersion: 'profile_v1' });
+  const llm = await analyzeWithLLM(OPEN_KEY, llmModel, payload, { cacheTtlMs: llmTtlMs, promptVersion: 'profile_v1' });
 
   const result = {
     input:{ticker:upperTicker, date: baselineDate},
@@ -141,9 +155,10 @@ async function performAnalysis(ticker, date){
         price_meta: priceMeta
       }
     },
-    analysis: llm
+    analysis: llm,
+    analysis_model: llmModel
   };
-  saveAnalysisResult({ ticker: upperTicker, baselineDate, isHistorical, result });
+  saveAnalysisResult({ ticker: upperTicker, baselineDate, isHistorical, model: llmModel, result });
   return result;
 }
 
@@ -187,10 +202,11 @@ function parseBatchFile(file){
 }
 
 app.post('/api/analyze', async (req,res)=>{
-  const {ticker, date} = req.body||{};
+  const {ticker, date, model} = req.body||{};
   if(!ticker||!date) return res.status(400).json({error:'ticker and date required'});
+  const resolvedModel = resolveModelName(model);
   try{
-    const result = await performAnalysis(ticker, date);
+    const result = await performAnalysis(ticker, date, { model: resolvedModel });
     res.json(result);
   }catch(err){ return errRes(res, err); }
 });
@@ -205,7 +221,7 @@ app.post('/api/batch', upload.single('file'), async (req,res)=>{
       if(!memo.has(key)){
         memo.set(key, (async ()=>{
           try{
-            const result = await performAnalysis(task.ticker, task.date);
+            const result = await performAnalysis(task.ticker, task.date, { model: MODEL });
             return { ok:true, result };
           }catch(error){
             return { ok:false, error };

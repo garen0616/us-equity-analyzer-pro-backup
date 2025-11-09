@@ -35,6 +35,9 @@ canvas{background:#0b1220;border:1px solid #1f2937;border-radius:12px;padding:10
 .status-pill[data-state="error"]{color:var(--bad);border-color:var(--bad)}
 .status-pill[data-state="error"]::before{background:var(--bad)}
 .status-pill[data-state="idle"]::before{background:var(--muted)}
+.status-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;align-items:flex-start}
+.ghost-btn{background:transparent;border:1px solid #334155;color:var(--muted);padding:8px 16px;border-radius:999px;font-size:14px;width:auto;display:none;margin-top:2px}
+.ghost-btn:hover{border-color:#475569;color:#e2e8f0}
 .batch-running{display:none;align-items:center;gap:8px;color:#bfdbfe;font-size:14px}
 .batch-dot{width:12px;height:12px;border-radius:50%;background:#60a5fa;animation:pulse-ball .8s ease-in-out infinite}
 .timeline{display:grid;gap:10px}
@@ -54,10 +57,13 @@ canvas{background:#0b1220;border:1px solid #1f2937;border-radius:12px;padding:10
   <div class="card">
     <div class="row">
       <div><label>Ticker</label><input id="t" value="NVDA" placeholder="NVDA"/></div>
-      <div><label>Date</label><input id="d" value="2025-11-08" placeholder="YYYY-MM-DD"/></div>
+      <div><label>Date</label><input id="d" type="date" value="2025-11-08"/></div>
       <div style="align-self:end"><button id="go">分析</button></div>
       <div style="grid-column:1 / -1">
-        <div id="status" class="status-pill" data-state="idle">待命中，請輸入條件後開始分析。</div>
+        <div class="status-row">
+          <div id="status" class="status-pill" data-state="idle">待命中，請輸入條件後開始分析。</div>
+          <button id="stop" class="ghost-btn">停止</button>
+        </div>
       </div>
     </div>
     <div class="kpis">
@@ -184,12 +190,41 @@ function renderConclusion(analysis){
 }
 
 const statusEl = document.getElementById('status');
+const goBtn = document.getElementById('go');
+const stopBtn = document.getElementById('stop');
+const analyzeLabel = goBtn?.textContent || '分析';
+let inFlightController = null;
+
 function setStatus(text, state='idle'){
   statusEl.textContent = text;
   statusEl.setAttribute('data-state', state);
 }
 
+function setAnalyzeRunning(running){
+  if(!goBtn) return;
+  if(running){
+    goBtn.disabled = true;
+    goBtn.textContent = '分析中...';
+    if(stopBtn){
+      stopBtn.style.display = 'inline-flex';
+      stopBtn.disabled = false;
+    }
+  }else{
+    goBtn.disabled = false;
+    goBtn.textContent = analyzeLabel;
+    if(stopBtn){
+      stopBtn.style.display = 'none';
+      stopBtn.disabled = false;
+    }
+    inFlightController = null;
+  }
+}
+
 async function analyze(){
+  if(inFlightController){
+    setStatus('已有分析任務執行中，請稍候或按「停止」。', 'running');
+    return;
+  }
   const ticker = document.getElementById('t').value.trim().toUpperCase();
   const date   = document.getElementById('d').value.trim();
   if(!ticker || !date){
@@ -197,18 +232,20 @@ async function analyze(){
     return;
   }
 
-  const btn = document.getElementById('go');
-  const prevLabel = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = '分析中...';
+  userAborted = false;
+  setAnalyzeRunning(true);
   setStatus(`正在分析 ${ticker}，這可能需要 1-2 分鐘，請勿關閉頁面…`, 'running');
   document.getElementById('out').textContent='分析中...';
+
+  const controller = new AbortController();
+  inFlightController = controller;
 
   try{
     const r = await fetch('/api/analyze',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ticker,date})
+      body:JSON.stringify({ticker,date}),
+      signal: controller.signal
     });
     const j = await r.json();
     document.getElementById('out').textContent = JSON.stringify(j,null,2);
@@ -235,14 +272,27 @@ async function analyze(){
     renderConclusion(j?.analysis);
     setStatus('分析完成 ✅', 'done');
   }catch(err){
-    setStatus(`連線失敗：${err.message}`, 'error');
+    if(err.name === 'AbortError'){
+      const msg = userAborted ? '用戶終止，請重新開始分析。' : '分析已中止，請稍後再試。';
+      setStatus(msg, 'error');
+      document.getElementById('out').textContent = '此次分析已被終止。';
+    }else{
+      setStatus(`連線失敗：${err.message}`, 'error');
+    }
   }finally{
-    btn.disabled = false;
-    btn.textContent = prevLabel;
+    setAnalyzeRunning(false);
   }
 }
 
-document.getElementById('go').addEventListener('click', analyze);
+goBtn.addEventListener('click', analyze);
+if(stopBtn){
+  stopBtn.addEventListener('click', ()=>{
+    if(!inFlightController) return;
+    userAborted = true;
+    stopBtn.disabled = true;
+    inFlightController.abort();
+  });
+}
 
 const batchFile = document.getElementById('batchFile');
 const batchCardBtn = document.getElementById('batchCardBtn');

@@ -145,7 +145,7 @@ async function performAnalysis(ticker, date, opts={}){
   const newsBundle = await buildNewsBundle({ ticker: upperTicker, baselineDate, openKey: OPEN_KEY, model: llmModel });
   payload.news = newsBundle;
   const llmTtlMs = analysisTtl;
-  const llm = await analyzeWithLLM(OPEN_KEY, llmModel, payload, { cacheTtlMs: llmTtlMs, promptVersion: 'profile_v1' });
+  const llm = await analyzeWithLLM(OPEN_KEY, llmModel, payload, { cacheTtlMs: llmTtlMs, promptVersion: 'profile_v2' });
 
   const result = {
     input:{ticker:upperTicker, date: baselineDate},

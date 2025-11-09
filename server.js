@@ -26,9 +26,26 @@ const AV_KEY  = process.env.ALPHAVANTAGE_KEY || '';
 const TWELVE_KEY = process.env.TWELVE_DATA_KEY || '';
 const OPEN_KEY= process.env.OPENROUTER_KEY || '';
 const MODEL   = process.env.OPENROUTER_MODEL || 'gpt-5';
+const BATCH_CONCURRENCY = Math.max(1, Number(process.env.BATCH_CONCURRENCY || 3));
 const upload = multer({ storage: multer.memoryStorage(), limits:{ fileSize: 10 * 1024 * 1024 } });
 
 function errRes(res, err){ console.error('❌', err); return res.status(500).json({error:String(err.message||err)}); }
+
+async function mapWithConcurrency(items, limit, mapper){
+  if(!Array.isArray(items) || !items.length) return [];
+  const size = Math.max(1, Math.min(limit || 1, items.length));
+  const results = new Array(items.length);
+  let index = 0;
+  const workers = Array.from({ length: size }, ()=>(async function worker(){
+    while(true){
+      const current = index++;
+      if(current >= items.length) break;
+      results[current] = await mapper(items[current], current);
+    }
+  })());
+  await Promise.all(workers);
+  return results;
+}
 
 async function performAnalysis(ticker, date){
   const parsedDate = dayjs(date);
@@ -39,11 +56,10 @@ async function performAnalysis(ticker, date){
 
   const cik = await getCIK(upperTicker, UA, SEC_KEY);
   const filings = await getRecentFilings(cik, baselineDate, UA, SEC_KEY);
-  const perFiling = [];
-  for (const f of filings){
+  const perFiling = await mapWithConcurrency(filings, 3, async (f)=>{
     const mda = await fetchMDA(f.url, UA);
-    perFiling.push({form:f.form, formLabel:f.formLabel, filingDate:f.filingDate, reportDate:f.reportDate, mda});
-  }
+    return { form:f.form, formLabel:f.formLabel, filingDate:f.filingDate, reportDate:f.reportDate, mda };
+  });
 
   const cacheContext = baselineDate;
   const [recoRes, earnRes, quoteRes] = await Promise.allSettled([
@@ -101,7 +117,8 @@ async function performAnalysis(ticker, date){
     })),
     finnhub: { recommendation:finnhub.recommendation, earnings:finnhub.earnings, quote:finnhub.quote, price_target: ptAgg }
   };
-  const llm = await analyzeWithLLM(OPEN_KEY, MODEL, payload);
+  const llmTtlMs = isHistorical ? 30 * 24 * 60 * 60 * 1000 : 6 * 60 * 60 * 1000;
+  const llm = await analyzeWithLLM(OPEN_KEY, MODEL, payload, { cacheTtlMs: llmTtlMs });
 
   return {
     input:{ticker:upperTicker, date: baselineDate},
@@ -170,30 +187,41 @@ app.post('/api/batch', upload.single('file'), async (req,res)=>{
   try{
     const tasks = parseBatchFile(req.file);
     if(!tasks.length) return res.status(400).json({error:'檔案內沒有有效的 ticker/date 列'});
-    const rows = [];
-    for (const task of tasks){
-      try{
-        const result = await performAnalysis(task.ticker, task.date);
-        const summary = result.fetched?.finnhub_summary || {};
-        rows.push({
-          ticker: result.input.ticker,
-          date: task.date,
-          current_price: summary.quote?.c ?? '',
-          analyst_mean_target: summary.price_target?.targetMean ?? summary.price_target?.targetMedian ?? '',
-          llm_target_price: result.analysis?.action?.target_price ?? '',
-          recommendation: result.analysis?.action?.rating ?? ''
-        });
-      }catch(err){
-        rows.push({
+    const memo = new Map();
+    const rows = await mapWithConcurrency(tasks, BATCH_CONCURRENCY, async (task)=>{
+      const key = `${task.ticker.toUpperCase()}__${task.date}`;
+      if(!memo.has(key)){
+        memo.set(key, (async ()=>{
+          try{
+            const result = await performAnalysis(task.ticker, task.date);
+            return { ok:true, result };
+          }catch(error){
+            return { ok:false, error };
+          }
+        })());
+      }
+      const outcome = await memo.get(key);
+      if(!outcome.ok){
+        return {
           ticker: task.ticker.toUpperCase(),
           date: task.date,
           current_price: '',
           analyst_mean_target: '',
           llm_target_price: '',
-          recommendation: `ERROR: ${err.message}`
-        });
+          recommendation: `ERROR: ${outcome.error.message}`
+        };
       }
-    }
+      const result = outcome.result;
+      const summary = result.fetched?.finnhub_summary || {};
+      return {
+        ticker: result.input.ticker,
+        date: task.date,
+        current_price: summary.quote?.c ?? '',
+        analyst_mean_target: summary.price_target?.targetMean ?? summary.price_target?.targetMedian ?? '',
+        llm_target_price: result.analysis?.action?.target_price ?? '',
+        recommendation: result.analysis?.action?.rating ?? ''
+      };
+    });
     const fields = ['ticker','date','current_price','analyst_mean_target','llm_target_price','recommendation'];
     const csv = Papa.unparse({
       fields,

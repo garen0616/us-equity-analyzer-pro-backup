@@ -87,18 +87,19 @@ canvas{background:#0b1220;border:1px solid #1f2937;border-radius:12px;padding:10
       <div class="kpi"><h3>新聞情緒</h3><p id="newsSentiment">-</p></div>
       <div class="kpi"><h3>動能評分</h3><p id="momentumScore">-</p></div>
       <div class="kpi"><h3>趨勢走向</h3><p id="trendFlag">-</p></div>
+      <div class="kpi"><h3>重大事件</h3><p id="eventSummary">-</p></div>
     </div>
-  </div>
-
-  <div class="card" style="margin-top:16px">
-    <h3 style="margin:0 0 8px">財報時間線與重點摘要</h3>
-    <div id="timeline" class="timeline"></div>
   </div>
 
   <div class="card" style="margin-top:16px">
     <h3 style="margin:0 0 8px">ChatGPT 總結與結論</h3>
     <div id="consensus" class="summary muted">尚無資料</div>
     <div id="decision" class="summary" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h3 style="margin:0 0 8px">財報時間線與重點摘要</h3>
+    <div id="timeline" class="timeline"></div>
   </div>
 
   <div class="card" style="margin-top:16px">
@@ -120,6 +121,12 @@ canvas{background:#0b1220;border:1px solid #1f2937;border-radius:12px;padding:10
   </div>
 
   <div class="card" style="margin-top:16px">
+    <h3 style="margin:0 0 8px">重大事件詳細說明</h3>
+    <div id="eventsSummary" class="summary muted">尚無重大事件</div>
+    <div id="eventsDetail" class="summary" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
     <h3 style="margin:0 0 8px">分析紀錄</h3>
     <div id="historyList" class="summary muted">尚無分析紀錄</div>
   </div>
@@ -127,7 +134,7 @@ canvas{background:#0b1220;border:1px solid #1f2937;border-radius:12px;padding:10
   <div class="card" style="margin-top:16px">
     <h3 style="margin:0 0 8px">批次分析</h3>
     <div class="summary muted" style="margin-bottom:12px">
-      利用上方下方工作列上傳 Excel/CSV（第一欄 ticker、第二欄 date），系統會逐行呼叫分析、然後下載包含現價、分析師平均/共識目標價與 ChatGPT 目標價的 CSV。
+      上傳 Excel/CSV（第一欄 ticker、第二欄 date、第三欄模型可選），系統逐行分析並輸出包含現價、分析師目標價、ChatGPT 目標價、新聞情緒與動能趨勢的 CSV。
     </div>
     <div class="summary muted">
       <strong>步驟：</strong><br/>
@@ -339,6 +346,38 @@ function renderHistory(){
   }).join('');
 }
 
+function renderEvents(bundle){
+  if(!bundle){
+    eventSummaryEl.textContent = '-';
+    eventsSummaryEl.textContent = '尚無重大事件';
+    eventsDetailEl.innerHTML = '';
+    return;
+  }
+  const primary = bundle.primary;
+  if(primary){
+    const date = primary.date ? dayjs(primary.date).format('YYYY/MM/DD') : '';
+    const text = `${date} ${primary.title || ''}`.trim();
+    eventSummaryEl.textContent = text || '-';
+  }else{
+    eventSummaryEl.textContent = '-';
+  }
+  eventsSummaryEl.textContent = bundle.summary || '重大事件摘要';
+  const detailList = Array.isArray(bundle.details) && bundle.details.length
+    ? bundle.details
+    : (bundle.raw_events || []);
+  if(!detailList.length){
+    eventsDetailEl.innerHTML = '（尚無其他事件）';
+    return;
+  }
+  const html = detailList.slice(0,5).map(evt=>{
+    const date = evt.date ? dayjs(evt.date).format('YYYY/MM/DD') : '';
+    const type = evt.type ? `[${evt.type}]` : '';
+    const summary = evt.summary || evt.headline || '';
+    return `<div class="muted">• ${date} ${type} ${evt.title || ''}<br/>${summary}</div>`;
+  }).join('<br/>');
+  eventsDetailEl.innerHTML = html;
+}
+
 function renderProfile(profile){
   const summaryEl = document.getElementById('profileSummary');
   const detailEl = document.getElementById('profileDetail');
@@ -400,10 +439,18 @@ const newsSentimentEl = document.getElementById('newsSentiment');
 const newsSummaryEl = document.getElementById('newsSummary');
 const newsArticlesEl = document.getElementById('newsArticles');
 const historyListEl = document.getElementById('historyList');
+const eventSummaryEl = document.getElementById('eventSummary');
+const eventsSummaryEl = document.getElementById('eventsSummary');
+const eventsDetailEl = document.getElementById('eventsDetail');
 const analyzeLabel = goBtn?.textContent || '分析';
 let inFlightController = null;
 let userAborted = false;
 const analysisHistory = [];
+
+renderNews(null);
+renderMomentum(null);
+renderEvents(null);
+renderHistory();
 
 renderNews(null);
 renderMomentum(null);
@@ -499,10 +546,12 @@ async function analyze(){
     renderProfile(j?.analysis?.profile);
     renderNews(j?.news);
     renderMomentum(j?.momentum);
+    renderEvents(j?.key_events);
     const newsLabel = j?.news?.sentiment?.sentiment_label ? `新聞：${j.news.sentiment.sentiment_label}` : '';
     const momentumLabel = j?.momentum?.trend ? `動能：${j.momentum.trend}` : '';
+    const eventLabel = j?.key_events?.primary?.title ? `事件：${j.key_events.primary.title}` : '';
     const baseSummary = j?.analysis?.consensus_view?.summary || j?.analysis?.action?.rationale || j?.news?.sentiment?.summary || '（尚無摘要）';
-    const historySummary = [baseSummary, newsLabel, momentumLabel].filter(Boolean).join(' ｜ ');
+    const historySummary = [baseSummary, newsLabel, momentumLabel, eventLabel].filter(Boolean).join(' ｜ ');
     analysisHistory.unshift({
       ticker: j?.input?.ticker || ticker,
       date: j?.input?.date || date,

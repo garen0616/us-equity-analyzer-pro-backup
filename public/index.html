@@ -35,11 +35,6 @@ canvas{background:#0b1220;border:1px solid #1f2937;border-radius:12px;padding:10
 .status-pill[data-state="error"]{color:var(--bad);border-color:var(--bad)}
 .status-pill[data-state="error"]::before{background:var(--bad)}
 .status-pill[data-state="idle"]::before{background:var(--muted)}
-.batch-bar{position:fixed;bottom:0;left:0;right:0;background:#0f172a;border-top:1px solid #1f2937;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px;z-index:20}
-.batch-info{font-size:14px;color:var(--muted);line-height:1.4}
-.batch-info strong{color:var(--text)}
-.batch-actions{display:flex;align-items:center;gap:12px}
-.batch-actions button{width:auto;padding:10px 16px}
 .batch-running{display:none;align-items:center;gap:8px;color:#bfdbfe;font-size:14px}
 .batch-dot{width:12px;height:12px;border-radius:50%;background:#60a5fa;animation:pulse-ball .8s ease-in-out infinite}
 .timeline{display:grid;gap:10px}
@@ -85,22 +80,29 @@ canvas{background:#0b1220;border:1px solid #1f2937;border-radius:12px;padding:10
   </div>
 
   <div class="card" style="margin-top:16px">
+    <h3 style="margin:0 0 8px">批次分析</h3>
+    <div class="summary muted" style="margin-bottom:12px">
+      利用上方下方工作列上傳 Excel/CSV（第一欄 ticker、第二欄 date），系統會逐行呼叫分析、然後下載包含現價、分析師平均/共識目標價與 ChatGPT 目標價的 CSV。
+    </div>
+    <div class="summary muted">
+      <strong>步驟：</strong><br/>
+      1. 按「選擇 Excel」並選取檔案。<br/>
+      2. 上傳後工作列會變成跑動球並顯示「批次分析中」。<br/>
+      3. 完成後自動觸發下載，並可在 JSON 區查看完整結果。
+    </div>
+    <div class="batch-card-action" style="margin-top:12px;display:flex;gap:12px;align-items:center">
+      <input type="file" id="batchFile" accept=".xlsx,.xls,.csv" hidden>
+      <button id="batchCardBtn">選擇 Excel</button>
+      <div id="batchRunning" class="batch-running">
+        <div class="batch-dot"></div>
+        <span>批次分析中，請稍後…</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
     <h3 style="margin:0 0 8px">詳細 JSON（除錯用）</h3>
     <pre id="out">尚未查詢</pre>
-  </div>
-</div>
-
-<div class="batch-bar">
-  <div class="batch-info">
-    <strong>批次分析</strong><br/>上傳 Excel（ticker/date）即可匯出 CSV
-  </div>
-  <div class="batch-actions">
-    <input type="file" id="batchFile" accept=".xlsx,.xls,.csv" hidden>
-    <button id="batchBtn">選擇 Excel</button>
-    <div id="batchRunning" class="batch-running">
-      <div class="batch-dot"></div>
-      <span>批次分析中，請稍後…</span>
-    </div>
   </div>
 </div>
 
@@ -243,15 +245,16 @@ async function analyze(){
 document.getElementById('go').addEventListener('click', analyze);
 
 const batchFile = document.getElementById('batchFile');
-const batchBtn = document.getElementById('batchBtn');
+const batchCardBtn = document.getElementById('batchCardBtn');
 const batchRunning = document.getElementById('batchRunning');
 
 function setBatchState(running){
+  if(!batchCardBtn || !batchRunning) return;
   if(running){
-    batchBtn.style.display = 'none';
+    batchCardBtn.style.display = 'none';
     batchRunning.style.display = 'flex';
   }else{
-    batchBtn.style.display = 'inline-flex';
+    batchCardBtn.style.display = 'inline-flex';
     batchRunning.style.display = 'none';
   }
 }
@@ -284,7 +287,7 @@ async function handleBatchUpload(file){
   }
 }
 
-batchBtn.addEventListener('click', ()=> batchFile.click());
+if(batchCardBtn) batchCardBtn.addEventListener('click', ()=> batchFile.click());
 batchFile.addEventListener('change', ()=>{
   const file = batchFile.files[0];
   if(file) handleBatchUpload(file);

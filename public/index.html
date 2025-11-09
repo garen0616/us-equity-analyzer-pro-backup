@@ -85,6 +85,8 @@ canvas{background:#0b1220;border:1px solid #1f2937;border-radius:12px;padding:10
       <div class="kpi"><h3>類型</h3><p id="segment">-</p></div>
       <div class="kpi"><h3>個股體質分數</h3><p id="qualityScore">-</p></div>
       <div class="kpi"><h3>新聞情緒</h3><p id="newsSentiment">-</p></div>
+      <div class="kpi"><h3>動能評分</h3><p id="momentumScore">-</p></div>
+      <div class="kpi"><h3>趨勢走向</h3><p id="trendFlag">-</p></div>
     </div>
   </div>
 
@@ -103,6 +105,12 @@ canvas{background:#0b1220;border:1px solid #1f2937;border-radius:12px;padding:10
     <h3 style="margin:0 0 8px">個股體質詳解</h3>
     <div id="profileSummary" class="summary muted">尚無資料</div>
     <div id="profileDetail" class="summary" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h3 style="margin:0 0 8px">動能與資金動向</h3>
+    <div id="momentumSummary" class="summary muted">尚無動能資料</div>
+    <div id="momentumDetail" class="summary" style="margin-top:8px"></div>
   </div>
 
   <div class="card" style="margin-top:16px">
@@ -201,7 +209,12 @@ function formatScore(score){
   return Number.isFinite(num) ? `${num.toFixed(0)}/100` : '-';
 }
 
-function setKPIs(quote, pt, priceMeta, action, profile, news){
+function formatPct(value){
+  if(value==null || Number.isNaN(value)) return '-';
+  return `${(value*100).toFixed(1)}%`;
+}
+
+function setKPIs(quote, pt, priceMeta, action, profile, news, momentum){
   const last = toNum(priceMeta?.value ?? quote?.c);
   const targets = ensureTargets(pt, last);
   const priceLabel = last? ('$'+last.toFixed(2)) : '-';
@@ -218,6 +231,8 @@ function setKPIs(quote, pt, priceMeta, action, profile, news){
   document.getElementById('segment').textContent = formatSegment(profile);
   document.getElementById('qualityScore').textContent = formatScore(profile?.score);
   newsSentimentEl.textContent = news?.sentiment?.sentiment_label || '-';
+  momentumScoreEl.textContent = toNum(momentum?.score) != null ? Math.round(momentum.score) : '-';
+  trendFlagEl.textContent = momentum?.trend || '-';
 }
 
 function renderTimeline(perFiling){
@@ -244,6 +259,35 @@ function renderConclusion(analysis){
               (act.stop_loss? ` · 止損 $${n(act.stop_loss,0)}`:'');
   document.getElementById('consensus').innerHTML = cons;
   document.getElementById('decision').innerHTML = dec + (act.rationale? `<div class="muted" style="margin-top:6px">${act.rationale}</div>`:'');
+}
+
+function renderMomentum(momentum){
+  if(!momentum){
+    momentumSummaryEl.textContent = '尚無動能資料';
+    momentumDetailEl.textContent = '';
+    return;
+  }
+  const scoreText = toNum(momentum.score)!=null ? `${Math.round(momentum.score)}` : '-';
+  const trendText = momentum.trend || '中性';
+  const ret3 = formatPct(momentum.returns?.m3);
+  const ret6 = formatPct(momentum.returns?.m6);
+  const ret12 = formatPct(momentum.returns?.m12);
+  const rsi = momentum.rsi14!=null ? momentum.rsi14.toFixed(1) : '-';
+  const atr = momentum.atr14!=null ? momentum.atr14.toFixed(2) : '-';
+  const volRatio = momentum.volume_ratio!=null ? momentum.volume_ratio.toFixed(2) : '-';
+  const etfLine = momentum.etf?.symbol ? `${momentum.etf.symbol} 3M ${formatPct(momentum.etf.return3m)}` : '－';
+  const maNotes = [];
+  if(momentum.moving_averages?.ma20) maNotes.push(`MA20 ${momentum.moving_averages.ma20.toFixed(2)}`);
+  if(momentum.moving_averages?.ma50) maNotes.push(`MA50 ${momentum.moving_averages.ma50.toFixed(2)}`);
+  if(momentum.moving_averages?.ma200) maNotes.push(`MA200 ${momentum.moving_averages.ma200.toFixed(2)}`);
+  const maLine = maNotes.join(' ｜ ') || '均線資料不足';
+  momentumSummaryEl.innerHTML = `<strong>${trendText}</strong> · 動能評分 ${scoreText} ｜ 3M ${ret3}`;
+  momentumDetailEl.innerHTML = [
+    `<div class="muted">6M ${ret6} ｜ 12M ${ret12}</div>`,
+    `<div class="muted">RSI14 ${rsi} ｜ ATR14 ${atr} ｜ 量能比 (5/30) ${volRatio}</div>`,
+    `<div class="muted">${maLine}</div>`,
+    `<div class="muted">ETF 參考：${etfLine}</div>`
+  ].join('<br/>');
 }
 
 function renderNews(bundle){
@@ -284,6 +328,10 @@ function renderHistory(){
     return `<div style="margin-bottom:10px"><strong>${item.ticker}</strong> · ${item.date} · ${item.model}<br/><span class="muted">${item.summary}</span></div>`;
   }).join('');
 }
+
+renderNews(null);
+renderMomentum(null);
+renderHistory();
 
 function renderProfile(profile){
   const summaryEl = document.getElementById('profileSummary');
@@ -342,6 +390,10 @@ const newsSentimentEl = document.getElementById('newsSentiment');
 const newsSummaryEl = document.getElementById('newsSummary');
 const newsArticlesEl = document.getElementById('newsArticles');
 const historyListEl = document.getElementById('historyList');
+const momentumScoreEl = document.getElementById('momentumScore');
+const trendFlagEl = document.getElementById('trendFlag');
+const momentumSummaryEl = document.getElementById('momentumSummary');
+const momentumDetailEl = document.getElementById('momentumDetail');
 const analyzeLabel = goBtn?.textContent || '分析';
 let inFlightController = null;
 let userAborted = false;
@@ -416,7 +468,8 @@ async function analyze(){
       j?.fetched?.finnhub_summary?.price_meta,
       j?.analysis?.action,
       j?.analysis?.profile,
-      j?.news
+      j?.news,
+      j?.momentum
     );
     const filingsMeta = j?.fetched?.filings || [];
     const timelineData = (j?.analysis?.per_filing || []).map((f,i)=>{
@@ -430,7 +483,11 @@ async function analyze(){
     renderConclusion(j?.analysis);
     renderProfile(j?.analysis?.profile);
     renderNews(j?.news);
-    const historySummary = j?.analysis?.consensus_view?.summary || j?.analysis?.action?.rationale || j?.news?.sentiment?.summary || '（尚無摘要）';
+    renderMomentum(j?.momentum);
+    const newsLabel = j?.news?.sentiment?.sentiment_label ? `新聞：${j.news.sentiment.sentiment_label}` : '';
+    const momentumLabel = j?.momentum?.trend ? `動能：${j.momentum.trend}` : '';
+    const baseSummary = j?.analysis?.consensus_view?.summary || j?.analysis?.action?.rationale || j?.news?.sentiment?.summary || '（尚無摘要）';
+    const historySummary = [baseSummary, newsLabel, momentumLabel].filter(Boolean).join(' ｜ ');
     analysisHistory.unshift({
       ticker: j?.input?.ticker || ticker,
       date: j?.input?.date || date,

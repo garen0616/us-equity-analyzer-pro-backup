@@ -15,6 +15,7 @@ import { analyzeWithLLM } from './lib/llm.js';
 import { getHistoricalPrice } from './lib/historicalPrice.js';
 import { getCachedAnalysis, saveAnalysisResult } from './lib/analysisStore.js';
 import { buildNewsBundle } from './lib/news.js';
+import { computeMomentumMetrics } from './lib/momentum.js';
 
 const app = express();
 app.use(express.json());
@@ -144,6 +145,8 @@ async function performAnalysis(ticker, date, opts={}){
   };
   const newsBundle = await buildNewsBundle({ ticker: upperTicker, baselineDate, openKey: OPEN_KEY, model: llmModel });
   payload.news = newsBundle;
+  const momentum = await computeMomentumMetrics(upperTicker, baselineDate);
+  payload.momentum = momentum;
   const llmTtlMs = analysisTtl;
   const llm = await analyzeWithLLM(OPEN_KEY, llmModel, payload, { cacheTtlMs: llmTtlMs, promptVersion: 'profile_v2' });
 
@@ -160,7 +163,8 @@ async function performAnalysis(ticker, date, opts={}){
     },
     analysis: llm,
     analysis_model: llmModel,
-    news: newsBundle
+    news: newsBundle,
+    momentum
   };
   saveAnalysisResult({ ticker: upperTicker, baselineDate, isHistorical, model: llmModel, result });
   return result;
@@ -247,13 +251,16 @@ app.post('/api/batch', upload.single('file'), async (req,res)=>{
           recommendation: `ERROR: ${outcome.error.message}`,
           segment: '',
           quality_score: '',
-          news_sentiment: ''
+          news_sentiment: '',
+          momentum_score: '',
+          trend_flag: ''
         };
       }
       const result = outcome.result;
       const summary = result.fetched?.finnhub_summary || {};
       const profile = result.analysis?.profile;
       const newsSent = result.news?.sentiment;
+      const momentum = result.momentum || {};
       return {
         ticker: result.input.ticker,
         date: task.date,
@@ -264,10 +271,12 @@ app.post('/api/batch', upload.single('file'), async (req,res)=>{
         recommendation: result.analysis?.action?.rating ?? '',
         segment: profile?.segment_label || profile?.segment || '',
         quality_score: profile?.score ?? '',
-        news_sentiment: newsSent?.sentiment_label || ''
+        news_sentiment: newsSent?.sentiment_label || '',
+        momentum_score: momentum.score ?? '',
+        trend_flag: momentum.trend || ''
       };
     });
-    const fields = ['ticker','date','model','current_price','analyst_mean_target','llm_target_price','recommendation','segment','quality_score','news_sentiment'];
+    const fields = ['ticker','date','model','current_price','analyst_mean_target','llm_target_price','recommendation','segment','quality_score','news_sentiment','momentum_score','trend_flag'];
     const csv = Papa.unparse({
       fields,
       data: rows.map(r=>fields.map(f=>r[f]))
